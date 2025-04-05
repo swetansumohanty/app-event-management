@@ -1,14 +1,16 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.config import settings
 from app.service.auth import get_current_active_user, oauth2_scheme
 from app.service.attendee import AttendeeService
-from app.dto.attendee import AttendeeCreate, AttendeeResponse
+from app.dto.attendee import AttendeeCreate, AttendeeResponse, BulkCheckInRequest
 from app.dto.user import UserResponse
 from app.common.response import AppResponse
 from app.common.enums import HTTPStatus
+import csv
+import io
 
 router = APIRouter()
 attendee_service = AttendeeService()
@@ -83,4 +85,59 @@ async def get_checked_in_attendees(
         status_code=status.HTTP_200_OK,
         message="Checked-in attendees retrieved successfully",
         data=attendees
-    ) 
+    )
+
+@router.post("/bulk-check-in", response_model=AppResponse[List[AttendeeResponse]])
+async def bulk_check_in_attendees(
+    event_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk check-in attendees via CSV upload.
+    CSV should have a single column with attendee emails.
+    """
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only CSV files are allowed"
+        )
+
+    try:
+        # Read CSV file
+        contents = await file.read()
+        csv_file = io.StringIO(contents.decode('utf-8'))
+        csv_reader = csv.reader(csv_file)
+        
+        # Extract emails from CSV
+        emails = []
+        for row in csv_reader:
+            if row:  # Skip empty rows
+                emails.append(row[0].strip())  # Assuming email is in first column
+
+        if not emails:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid emails found in CSV"
+            )
+
+        # Create bulk check-in request
+        request = BulkCheckInRequest(
+            event_id=event_id,
+            attendee_emails=emails
+        )
+
+        # Process bulk check-in
+        response = attendee_service.bulk_check_in_attendees(db, request)
+        if not response.success:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=response.message
+            )
+        return response
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing CSV file: {str(e)}"
+        ) 

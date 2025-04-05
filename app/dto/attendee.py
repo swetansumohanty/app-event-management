@@ -1,23 +1,22 @@
-from pydantic import BaseModel, EmailStr, constr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, constr, Field
+from typing import Optional, List
 from datetime import datetime
 
 class AttendeeBase(BaseModel):
-    first_name: constr(min_length=1, max_length=50)
-    last_name: constr(min_length=1, max_length=50)
+    first_name: str = Field(..., min_length=1, max_length=50)
+    last_name: str = Field(..., min_length=1, max_length=50)
     email: EmailStr
-    phone_number: Optional[str] = None
+    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
     event_id: int
 
 class AttendeeCreate(AttendeeBase):
     pass
 
-class AttendeeUpdate(AttendeeBase):
-    first_name: Optional[constr(min_length=1, max_length=50)] = None
-    last_name: Optional[constr(min_length=1, max_length=50)] = None
+class AttendeeUpdate(BaseModel):
+    first_name: Optional[str] = Field(None, min_length=1, max_length=50)
+    last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     email: Optional[EmailStr] = None
-    phone_number: Optional[str] = None
-    event_id: Optional[int] = None
+    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
     check_in_status: Optional[bool] = None
 
 class AttendeeInDB(AttendeeBase):
@@ -32,8 +31,13 @@ class AttendeeInDB(AttendeeBase):
 class AttendeeResponse(AttendeeBase):
     id: int
     check_in_status: bool
+    check_in_time: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+class BulkCheckInRequest(BaseModel):
+    event_id: int
+    attendee_emails: List[EmailStr] 

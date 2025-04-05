@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from ..dao.attendee import AttendeeDAO
 from ..dao.event import EventDAO
-from ..dto.attendee import AttendeeCreate, AttendeeUpdate, AttendeeResponse
+from ..dto.attendee import AttendeeCreate, AttendeeUpdate, AttendeeResponse, BulkCheckInRequest
 from ..core.database import get_db
 from ..common.response import AppResponse
 from ..common.enums import HTTPStatus, EventStatus
@@ -142,4 +142,70 @@ class AttendeeService:
 
     def get_checked_in_attendees(self, db: Session, event_id: int, skip: int = 0, limit: int = 100) -> List[AttendeeResponse]:
         attendees = self.attendee_dao.get_checked_in_attendees(db, event_id, skip, limit)
-        return [AttendeeResponse.model_validate(attendee) for attendee in attendees] 
+        return [AttendeeResponse.model_validate(attendee) for attendee in attendees]
+
+    def bulk_check_in_attendees(self, db: Session, request: BulkCheckInRequest) -> AppResponse[List[AttendeeResponse]]:
+        """
+        Check in multiple attendees for an event.
+        
+        Args:
+            db: Database session
+            request: BulkCheckInRequest containing event_id and list of attendee emails
+            
+        Returns:
+            AppResponse containing list of checked-in attendees
+        """
+        try:
+            # Verify event exists and is ongoing
+            event = self.event_dao.get(db, request.event_id)
+            if not event:
+                return AppResponse.error_response(
+                    status_code=HTTPStatus.NOT_FOUND,
+                    message="Event not found"
+                )
+
+            if event.status != EventStatus.ONGOING:
+                return AppResponse.error_response(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    message="Event is not ongoing"
+                )
+
+            # Get all attendees for the event
+            attendees = self.attendee_dao.get_by_event(db, request.event_id)
+            email_to_attendee = {attendee.email: attendee for attendee in attendees}
+
+            checked_in_attendees = []
+            errors = []
+
+            # Process each email
+            for email in request.attendee_emails:
+                attendee = email_to_attendee.get(email)
+                if not attendee:
+                    errors.append(f"Attendee with email {email} not found")
+                    continue
+
+                if attendee.check_in_status:
+                    errors.append(f"Attendee with email {email} already checked in")
+                    continue
+
+                # Check in the attendee
+                updated_attendee = self.attendee_dao.check_in_attendee(db, attendee.id)
+                if updated_attendee:
+                    checked_in_attendees.append(AttendeeResponse.model_validate(updated_attendee))
+
+            # Prepare response
+            message = "Bulk check-in completed"
+            if errors:
+                message += f" with {len(errors)} errors: " + "; ".join(errors)
+
+            return AppResponse.success_response(
+                status_code=HTTPStatus.OK,
+                message=message,
+                data=checked_in_attendees
+            )
+
+        except Exception as e:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                message=f"Error during bulk check-in: {str(e)}"
+            ) 
