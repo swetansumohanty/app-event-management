@@ -1,0 +1,145 @@
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
+from ..dao.attendee import AttendeeDAO
+from ..dao.event import EventDAO
+from ..dto.attendee import AttendeeCreate, AttendeeUpdate, AttendeeResponse
+from ..core.database import get_db
+from ..common.response import AppResponse
+from ..common.enums import HTTPStatus, EventStatus
+
+class AttendeeService:
+    def __init__(self):
+        self.attendee_dao = AttendeeDAO()
+        self.event_dao = EventDAO()
+
+    def register_attendee(self, db: Session, attendee_in: AttendeeCreate) -> AppResponse[AttendeeResponse]:
+        # Check if event exists
+        event = self.event_dao.get(db, attendee_in.event_id)
+        if not event:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.NOT_FOUND,
+                message="Event not found"
+            )
+
+        # Check if event is still open for registration
+        if event.status in [EventStatus.COMPLETED, EventStatus.CANCELLED]:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.BAD_REQUEST,
+                message="Event is not open for registration"
+            )
+
+        # Check if attendee already registered
+        existing_attendee = self.attendee_dao.get_by_email(db, attendee_in.email)
+        if existing_attendee and existing_attendee.event_id == attendee_in.event_id:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.BAD_REQUEST,
+                message="Attendee already registered for this event"
+            )
+
+        # Check if event has reached max attendees
+        current_attendees = self.attendee_dao.get_by_event(db, attendee_in.event_id)
+        if len(current_attendees) >= event.max_attendees:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.BAD_REQUEST,
+                message="Event has reached maximum attendees"
+            )
+
+        attendee = self.attendee_dao.create(db, attendee_in.model_dump())
+        return AppResponse.success_response(
+            status_code=HTTPStatus.CREATED,
+            message="Attendee registered successfully",
+            data=attendee
+        )
+
+    def check_in_attendee(self, db: Session, attendee_id: int) -> Optional[AttendeeResponse]:
+        attendee = self.attendee_dao.get(db, attendee_id)
+        if not attendee:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Attendee not found"
+            )
+
+        event = self.event_dao.get(db, attendee.event_id)
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Event not found"
+            )
+
+        if event.status != EventStatus.ONGOING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Event is not ongoing"
+            )
+
+        if attendee.check_in_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Attendee already checked in"
+            )
+
+        updated_attendee = self.attendee_dao.check_in_attendee(db, attendee_id)
+        return AttendeeResponse.model_validate(updated_attendee) if updated_attendee else None
+
+    def get_attendees(
+        self,
+        db: Session,
+        event_id: Optional[int] = None,
+        email: Optional[str] = None,
+        check_in_status: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> AppResponse[List[AttendeeResponse]]:
+        """
+        Get attendees with optional filters.
+        
+        Args:
+            db: Database session
+            event_id: Optional event ID to filter by
+            email: Optional email to filter by
+            check_in_status: Optional check-in status to filter by
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            AppResponse containing list of attendees
+        """
+        try:
+            # If event_id is provided, verify the event exists
+            if event_id:
+                event = self.event_dao.get_by_id(db, event_id)
+                if not event:
+                    return AppResponse.error_response(
+                        status_code=HTTPStatus.NOT_FOUND,
+                        message="Event not found"
+                    )
+
+            # Get attendees with filters
+            attendees = self.attendee_dao.get_attendees(
+                db=db,
+                event_id=event_id,
+                email=email,
+                check_in_status=check_in_status,
+                skip=skip,
+                limit=limit
+            )
+
+            # Convert to response models
+            attendee_responses = [AttendeeResponse.model_validate(attendee) for attendee in attendees]
+
+            return AppResponse.success_response(
+                status_code=HTTPStatus.OK,
+                data=attendee_responses,
+                message="Attendees retrieved successfully"
+            )
+
+        except Exception as e:
+            return AppResponse.error_response(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                message=f"Error retrieving attendees: {str(e)}"
+            )
+
+    def get_checked_in_attendees(self, db: Session, event_id: int, skip: int = 0, limit: int = 100) -> List[AttendeeResponse]:
+        attendees = self.attendee_dao.get_checked_in_attendees(db, event_id, skip, limit)
+        return [AttendeeResponse.model_validate(attendee) for attendee in attendees] 
