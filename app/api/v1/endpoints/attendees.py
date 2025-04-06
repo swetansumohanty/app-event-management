@@ -11,15 +11,19 @@ from app.common.response import AppResponse
 from app.common.enums import HTTPStatus
 import csv
 import io
+from app.common.logger import logger
+
 
 router = APIRouter()
 attendee_service = AttendeeService()
 
-@router.post("/", response_model=AppResponse[AttendeeResponse])
+
+@router.post("/", response_model=AppResponse[AttendeeResponse], status_code=HTTPStatus.CREATED.value)
 async def register_attendee(
     attendee_in: AttendeeCreate,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Registering attendee: {attendee_in}")
     response = attendee_service.register_attendee(db, attendee_in)
     if not response.success:
         raise HTTPException(
@@ -33,6 +37,7 @@ async def check_in_attendee(
     attendee_id: int,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Checking in attendee: {attendee_id}")
     response = attendee_service.check_in_attendee(db, attendee_id)
     if not response:
         raise HTTPException(
@@ -45,7 +50,7 @@ async def check_in_attendee(
         data=response
     )
 
-@router.get("/", response_model=AppResponse[List[AttendeeResponse]])
+@router.get("/", response_model=AppResponse[List[AttendeeResponse]], status_code=HTTPStatus.OK.value)
 async def get_attendees(
     event_id: Optional[int] = None,
     email: Optional[str] = None,
@@ -64,6 +69,7 @@ async def get_attendees(
     - skip: Number of records to skip (for pagination)
     - limit: Maximum number of records to return
     """
+    logger.info(f"Getting attendees with event_id: {event_id}, email: {email}, check_in_status: {check_in_status}")
     return attendee_service.get_attendees(
         db=db,
         event_id=event_id,
@@ -73,13 +79,14 @@ async def get_attendees(
         limit=limit
     )
 
-@router.get("/event/{event_id}/checked-in", response_model=AppResponse[List[AttendeeResponse]])
+@router.get("/event/{event_id}/checked-in", response_model=AppResponse[List[AttendeeResponse]], status_code=HTTPStatus.OK.value)
 async def get_checked_in_attendees(
     event_id: int,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Getting checked-in attendees for event: {event_id}")
     attendees = attendee_service.get_checked_in_attendees(db, event_id, skip, limit)
     return AppResponse.success_response(
         status_code=status.HTTP_200_OK,
@@ -97,6 +104,7 @@ async def bulk_check_in_attendees(
     Bulk check-in attendees via CSV upload.
     CSV should have a single column with attendee emails.
     """
+    logger.info(f"Bulk checking in attendees for event: {event_id}")
     if not file.filename.endswith('.csv'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -105,15 +113,17 @@ async def bulk_check_in_attendees(
 
     try:
         # Read CSV file
+        logger.info(f"Reading CSV file: {file.filename}")
         contents = await file.read()
         csv_file = io.StringIO(contents.decode('utf-8'))
         csv_reader = csv.reader(csv_file)
         
         # Extract emails from CSV
+        logger.info(f"Extracting emails from CSV")
         emails = []
         for row in csv_reader:
             if row:  # Skip empty rows
-                emails.append(row[0].strip())  # Assuming email is in first column
+                emails.append(row[0].strip()) 
 
         if not emails:
             raise HTTPException(
@@ -126,9 +136,11 @@ async def bulk_check_in_attendees(
             event_id=event_id,
             attendee_emails=emails
         )
+        logger.info(f"Bulk check-in request: {request}")
 
         # Process bulk check-in
         response = attendee_service.bulk_check_in_attendees(db, request)
+        logger.info(f"Bulk check-in response: {response}")
         if not response.success:
             raise HTTPException(
                 status_code=response.status_code,

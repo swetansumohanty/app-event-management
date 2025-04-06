@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     API_V2_STR: str = "/api/v2"
     
-    MYSQL_SERVER: str = os.getenv("MYSQL_SERVER", "localhost")
+    MYSQL_SERVER: str = os.getenv("MYSQL_SERVER", "db")
     MYSQL_USER: str = os.getenv("MYSQL_USER", "root")
     MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "root")
     MYSQL_DB: str = os.getenv("MYSQL_DB", "event_management")
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_SERVER}:{MYSQL_PORT}/{MYSQL_DB}"
     )
     
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-here")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "secret-key")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 

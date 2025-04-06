@@ -1,5 +1,5 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -13,15 +13,20 @@ from app.service.auth import (
 from app.dto.user import UserCreate, UserResponse, Token
 from app.service.user import UserService
 from app.common.response import AppResponse
+from app.common.enums import HTTPStatus
+from app.common.logger import logger
+
 
 router = APIRouter()
 user_service = UserService()
 
-@router.post("/register", response_model=AppResponse[UserResponse])
+
+@router.post("/register", response_model=AppResponse[UserResponse], status_code=HTTPStatus.CREATED.value)
 async def register(
     user_in: UserCreate,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Registering user: {user_in}")
     response = user_service.register_user(db, user_in)
     if not response.success:
         raise HTTPException(
@@ -32,10 +37,12 @@ async def register(
 
 @router.post("/login", response_model=Token)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    email: str = Form(...),
+    password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    response = user_service.get_user_by_email(db, form_data.username)
+    logger.info(f"Logging in user: {email}")
+    response = user_service.get_user_by_email(db, email)
     if not response.success:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -44,7 +51,7 @@ async def login(
         )
     
     user = response.data
-    if not verify_password(form_data.password, user.hashed_password):
+    if not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -57,15 +64,3 @@ async def login(
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
-
-@router.get("/me", response_model=AppResponse[UserResponse])
-async def get_current_user_endpoint(
-    db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme)
-):
-    user = await get_current_active_user(db, token)
-    return AppResponse.success(
-        status_code=status.HTTP_200_OK,
-        message="User retrieved successfully",
-        data=user
-    ) 

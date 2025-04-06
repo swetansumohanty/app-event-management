@@ -10,16 +10,21 @@ from app.dto.event import EventCreate, EventUpdate, EventResponse
 from app.dto.user import UserResponse
 from app.common.enums import EventStatus
 from app.common.response import AppResponse
+from app.common.enums import HTTPStatus
+from app.common.logger import logger
+
 
 router = APIRouter()
 event_service = EventService()
 
-@router.post("/", response_model=AppResponse[EventResponse])
+
+@router.post("/", response_model=AppResponse[EventResponse], status_code=HTTPStatus.CREATED.value)
 async def create_event(
     event_in: EventCreate,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ):
+    logger.info(f"Creating event: {event_in}")
     current_user = await get_current_active_user(db, token)
     response = event_service.create_event(db, event_in, current_user.id)
     if not response.success:
@@ -29,7 +34,7 @@ async def create_event(
         )
     return response
 
-@router.get("/", response_model=AppResponse[List[EventResponse]])
+@router.get("/", response_model=AppResponse[List[EventResponse]], status_code=HTTPStatus.OK.value)
 async def get_events(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
@@ -38,6 +43,7 @@ async def get_events(
     end_date: Optional[datetime] = None,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Getting events: status: {status}, start_date: {start_date}, end_date: {end_date}")
     response = event_service.get_events(db, skip, limit, status, start_date, end_date)
     if not response.success:
         raise HTTPException(
@@ -46,11 +52,12 @@ async def get_events(
         )
     return response
 
-@router.get("/{event_id}", response_model=AppResponse[EventResponse])
+@router.get("/{event_id}", response_model=AppResponse[EventResponse], status_code=HTTPStatus.OK.value)
 async def get_event(
     event_id: int,
     db: Session = Depends(get_db)
 ):
+    logger.info(f"Getting event: {event_id}")
     response = event_service.get_event(db, event_id)
     if not response.success:
         raise HTTPException(
@@ -59,13 +66,14 @@ async def get_event(
         )
     return response
 
-@router.put("/{event_id}", response_model=AppResponse[EventResponse])
+@router.put("/{event_id}", response_model=AppResponse[EventResponse], status_code=HTTPStatus.OK.value)
 async def update_event(
     event_id: int,
     event_in: EventUpdate,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ):
+    logger.info(f"Updating event: {event_id}")
     current_user = await get_current_active_user(db, token)
     response = event_service.update_event(db, event_id, event_in, current_user.id)
     if not response.success:
@@ -75,13 +83,14 @@ async def update_event(
         )
     return response
 
-@router.patch("/{event_id}/status", response_model=AppResponse[EventResponse])
+@router.patch("/{event_id}/status", response_model=AppResponse[EventResponse], status_code=HTTPStatus.OK.value)
 async def update_event_status(
     event_id: int,
     status: EventStatus,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ):
+    logger.info(f"Updating event status: {event_id}")
     current_user = await get_current_active_user(db, token)
     response = event_service.update_event_status(db, event_id, status, current_user.id)
     if not response.success:
